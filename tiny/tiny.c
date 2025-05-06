@@ -162,10 +162,34 @@ void serve_static(int fd, char *filename, int filesize)
 
   srcfd = Open(filename, O_RDONLY, 0 );                               // 파일을 읽기 전용으로 오픈
   srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0 );        // 파일 전체를 읽기 전용 private 매핑
+  // Mmap을 쓴 이유는 메모리처럼 직접 다루기 위함
+  // 일반적으로 read()로 파일을 읽어 버퍼에 복사한 뒤, write()로 다시 네트워크에 복사해야 하지만,
+  // mmap은 커널 페이지 테이블에 파일을 매핑(mapping)해 두고, 
+  // 사용자 공간에서는 단순히 메모리 접근만으로 파일 데이터를 읽을 수 있도록 해 준다. 
+  // 따라서 복사 횟수가 줄어들어 대용량 전송 시 성능 이점이 큽니다.
   Close(srcfd);                                                       // 매핑 후 더 이상 필요 없는 파일 디스크립터 닫기
   Rio_writen(fd, srcp, filesize);                                     // 매핑된 파일 내용을 클라이언트에 전송
   Munmap(srcp, filesize);                                             // 메모리 매핑 해제
+/* malloc, rio_readn, rio_writen을 사용해서 연결 식별자에게 복사해보기 -숙제 11.9
+  // 1) malloc으로 버퍼 할당 
+  srcp = malloc(filesize);
+  if (srcp == NULL) {
+      clienterror(fd, filename, "500", "Internal server error",
+                  "Tiny couldn't allocate memory");
+      return;
+  }
 
+  // 2) 파일을 읽어서 버퍼에 채우기 
+  srcfd = Open(filename, O_RDONLY, 0);
+  Rio_readn(srcfd, srcp, filesize);   // Rio_readn으로 정확히 filesize 바이트 읽기
+  Close(srcfd);
+
+  // 3) 클라이언트로 파일 전송 
+  Rio_writen(fd, srcp, filesize);
+
+  // 4) 할당 해제 
+  free(srcp);
+  */
 }
 
 // get_filetype : 요청된 파일 이름(filename)의 확장자를 검사하여 알맞은 MIME 타입 문자열을 filetype에 복사하는 함수
@@ -180,6 +204,9 @@ void get_filetype(char *filename, char *filetype){
     strcpy(filetype, "image/png");      //  → png 타입 복사
   else if (strstr(filename, ".jpg"))    // filename에 ".jpg"이 포함되어 있으면
     strcpy(filetype, "image/jpeg");     //  → jpeg 타입 복사
+  // 숙제 11.7
+  else if (strstr(filename, ".mpg")||strstr(filename, ".mpeg"))
+    strcpy(filetype, "vedio/mpeg");     
   else                                  // 위 확장자 모두 아닐때
     strcpy(filetype, "text/plain");     //  → 기본 텍스트 타입 복사
 }
