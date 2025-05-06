@@ -50,7 +50,7 @@ void doit(int fd)
   // (풀스펙 서버라면 이 부분에서 헤더를 "이름: 값" 형태로  
   //  파싱해서 자료구조에 저장한 뒤, 필요한 헤더를 참조하도록 구현)
 
-  // 4. URI 파싱: 정적/동적 콘텐츠 구분 
+  // 4. URI 파싱: 정적/동적 콘텐츠 구분 ->uri로 파싱하는 이유 : HTTP 요청에서 어떤 자원(파일이나 CGI 프로그램)을 달라고 했는지는 전부 uri 안에 들어 있기 때문
   is_static = parse_uri(uri, filename, cgiargs); // filename : 실제 파일 또는 프로그램 경로 저장 , cgiargs : CGI용 인자 저장
 
   // 5. 파일 존재 여부 확인 
@@ -115,7 +115,9 @@ void read_requesthdrs(rio_t *rp)
   return;                 
 }                               
 
-// 클라이언트가 요청한 URI를 분석하여 정적 파일 요청인지 (return 1), 동적 파일 요청인지 (return 0)을 판단하고 그에 맞게 filename(실제 파일 경로)과 cgiargs(CGI인자)를 설정해준다. 
+// parse_uri: 클라이언트 요청 URI를 분석하여
+//   • 정적 콘텐츠 요청(static)을 나타내면 filename과 빈 cgiargs를 설정하고 1 반환
+//   • 동적 콘텐츠 요청(CGI)을 나타내면 filename과 cgiargs를 분리하여 설정하고 0 반환
 int parse_uri(char *uri, char *filename, char *cgiargs)
 {
   char *ptr;    // URI에서 '?'위치를 찾기 위한 포인터

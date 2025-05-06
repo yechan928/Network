@@ -10,3 +10,10 @@ ls
 cd tiny
 make
 ./tiny 12345
+ls
+cd tiny
+./tiny 12345
+make clean
+make
+./tiny 12345
+./tiny 12345
