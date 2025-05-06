@@ -15,13 +15,21 @@ int main(int argc, char ** argv){
   clientfd = Open_clientfd(host, port);   // 서버와 연결하기 위한 클라이언트 소켓 열기
   Rio_readinitb(&rio, clientfd);          // rio 구조체 초기화, 읽기/쓰기 연산을 위한 준비
 
-  
+// rio구조체  
+//   #define RIO_BUFSIZE 8192
+// typedef struct {
+//     int rio_fd;                /* Descriptor for this internal buf */
+//     int rio_cnt;               /* Unread bytes in internal buf */
+//     char *rio_bufptr;          /* Next unread byte in internal buf */
+//     char rio_buf[RIO_BUFSIZE]; /* Internal buffer */
+// } rio_t;
 
   // 표준 입력에서 한 줄씩 읽어서 서버로 전송하고, 서버의 응답을 받는다. 
   while(Fgets(buf, MAXLINE, stdin) != NULL){
-    Rio_writen(clientfd, buf, strlen(buf));     //서버에 버퍼 데이터를 전송
-    Rio_readlineb(&rio, buf, MAXLINE);          //서버의 응답을 읽음
-    Fputs(buf, stdout);                         //서버의 응답을 화면에 출력
+    Rio_writen(clientfd, buf, strlen(buf));     // 클라이언트가 서버에 버퍼 데이터를 전송
+    Rio_readlineb(&rio, buf, MAXLINE);          // 서버의 응답을 읽음(rio 구조체에 저장된 정보에 기반하여 소켓 또는 파일로부터 데이터를 읽고
+                                                // 읽은 데이터를 buf 배열에 저장)
+    Fputs(buf, stdout);                         // 서버의 응답(buf)을 화면에 출력
   }
   Close(clientfd);      // 서버와의 연결 종료
   exit(0);

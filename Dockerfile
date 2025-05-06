@@ -18,8 +18,12 @@ RUN apt-get update \
 RUN useradd -m -s /bin/bash jungle \
     && echo "jungle ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/jungle
 
+EXPOSE 12345
+
 # 이후부터는 jungle 사용자로
 USER jungle
 WORKDIR /home/jungle
 
 CMD ["bash"]
+
+
