@@ -11,14 +11,13 @@
 void doit(int fd);
 void read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int fd, char *filename, int filesize);
+void serve_static(int fd, char *filename, int filesize, int is_head);
 void get_filetype(char *filename, char *filetype);
 void serve_dynamic(int fd, char *filename, char *cgiargs);
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg,
-                 char *longmsg);
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg,char *longmsg);
 
 void doit(int fd)
-{
+{ 
   int is_static;        // 정적(static) 콘텐츠 여부 저장 플래그
   struct stat sbuf;     // 파일 정보(stat) 저장 구조체
   // buf : 요청라인 한 줄 읽어올 버퍼, method : http의 메소드 저장, uri : 요청된 uri 저장, version : http 버전 저장
@@ -32,23 +31,36 @@ void doit(int fd)
   printf("Request headers : \n");
   printf("%s", buf);                                  // 디버그용: 읽어온 요청 라인 출력
   sscanf(buf, "%s %s %s", method, uri, version);      // buf에서 method, URI, version 토큰 파싱
+  
+  int is_head = (strcasecmp(method, "HEAD") == 0);
 
   // 2. Tiny는 "GET"메소드만 지원하기 때문에 다른 메소드 요청시 에러 
-  if(strcasecmp(method, "GET")){                          // method가 GET 아니면 if문 실행
+  if(strcasecmp(method, "GET") && strcasecmp(method, "HEAD")){                          // method가 GET 아니면 if문 실행
     clienterror(fd, method, "501", "Not implemented",     // 501 Not implemented 에러 (의미 : 서버가 요청된 기능(메소드)을 아직 구현하지 않았다)
                 "Tiny does not implement this method");
     return;
   }
   
-  // 3. 나머지 요청 헤더 읽어서 무시 (소켓으로부터 첫 번째 요청 라인 이후에 나오는 모든 HTTP 헤더를 빈 줄(“\r\n”)이 나올 때까지 한 줄씩 읽어서 버리는 함수)
-  read_requesthdrs(&rio);         // Host, User-Agent 등 헤더를 읽고 버림
-  // 헤더를 버리는 이유:
-  // Tiny 서버는 최소 기능만 구현하므로, 헤더를 파싱하지 않고  
-  // 단순히 버퍼에서 제거만 해 줘야 다음 단계에서 요청 본문이나  
-  // 다른 요청이 섞이지 않습니다.
+/* 3. 예외처리: HTTP/1.1 요청이라면 Host 헤더가 반드시 있는지 검사 */
+if (strcasecmp(version, "HTTP/1.1") == 0) {
+  char header[MAXLINE];           
+  int has_host = 0;
 
-  // (풀스펙 서버라면 이 부분에서 헤더를 "이름: 값" 형태로  
-  //  파싱해서 자료구조에 저장한 뒤, 필요한 헤더를 참조하도록 구현)
+  /* 헤더를 몽땅 한 번에 읽으면서, HTTP/1.1이면 Host 검사도 함께 */
+Rio_readlineb(&rio, header, MAXLINE);
+while (strcmp(header, "\r\n")) {
+    if (!strncasecmp(header, "Host:", 5))
+        has_host = 1;
+    Rio_readlineb(&rio, header, MAXLINE);
+}
+
+/* HTTP/1.1인데 Host가 없으면 에러 */
+if (strcasecmp(version, "HTTP/1.1") == 0 && !has_host) {
+    clienterror(fd, version, "400", "Bad Request", "Missing Host header");
+    return;
+  }
+
+}
 
   // 4. URI 파싱: 정적/동적 콘텐츠 구분 ->uri로 파싱하는 이유 : HTTP 요청에서 어떤 자원(파일이나 CGI 프로그램)을 달라고 했는지는 전부 uri 안에 들어 있기 때문
   is_static = parse_uri(uri, filename, cgiargs); // filename : 실제 파일 또는 프로그램 경로 저장 , cgiargs : CGI용 인자 저장
@@ -65,7 +77,7 @@ void doit(int fd)
       clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't read the file"); // 일반파일이 아니고 사용자 읽기 권한 없으면 403 오류 (403 오류 : 권한이 없을때)
       return;
     }
-    serve_static(fd, filename, sbuf.st_size);   // 파일 내용 전송
+    serve_static(fd, filename, sbuf.st_size, is_head);   // 파일 내용 전송
   }
   else{   // 동적 콘텐츠(CGI)이면 
     if(!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)){ // 위에와 마찬가지 
@@ -99,22 +111,6 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
   Rio_writen(fd, body, strlen(body));                                 // 생성된 HTML 본문을 클라이언트에 전송
 }
 
-
-
-// 빈줄(\r\n)이 나올 때까지 한줄 씩 읽어서 출력한뒤 버려주는 역할(버린다는 것은 읽기만 하고 저장하지 않는다라는 것- > 왜 버리나: Tiny 서버는 헤더 내용을 사용하지 않기 때문에)
-// 빈 줄 전까지 모두 읽어 소켓 버퍼에서 제거해야 이후 본문(body) 처리나 다음 요청 파싱이 꼬이지 않기 때문에 아래와 같은 함수가 필요하다. 
-void read_requesthdrs(rio_t *rp)
-{
-  char buf[MAXLINE];
-
-  Rio_readlineb(rp, buf, MAXLINE);      // 첫번째 헤더라인 읽고(누구의 헤더? -> 클라이언트가 소켓을 통해 보낸 HTTP 요청 헤더/ 헤더 안에는 Host:, User-Agent:, Accept:, Cookie: 등 “이름: 값” 쌍들이 들어 있음)
-  while(strcmp(buf, "\r\n")){           // 빈줄이 아닐때는 while문 실행
-    Rio_readlineb(rp, buf, MAXLINE);    // 다음 헤더라인 읽고 
-    printf("%s",buf);                   // 출력
-  }
-  return;                 
-}                               
-
 // parse_uri: 클라이언트 요청 URI를 분석하여
 //   • 정적 콘텐츠 요청(static)을 나타내면 filename과 빈 cgiargs를 설정하고 1 반환
 //   • 동적 콘텐츠 요청(CGI)을 나타내면 filename과 cgiargs를 분리하여 설정하고 0 반환
@@ -145,7 +141,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
 
 
 // 클라이언트에게 정적 파일(HTML, 이미지, CSS 등)의 내용을 HTTP 프로토콜에 맞춰 전송하는 역할
-void serve_static(int fd, char *filename, int filesize)
+void serve_static(int fd, char *filename, int filesize, int is_head)
 {
   int srcfd;      // 파일 디스크립터 저장 변수
   char *srcp, filetype[MAXLINE], buf[MAXBUF];   // srcp : mmap으로 매핑된 파일의 시작 주소 , filetype : 파일의 MIME 타입 문자열, buf :응답 헤더를 저장할 버퍼
@@ -161,15 +157,23 @@ void serve_static(int fd, char *filename, int filesize)
   printf("%s", buf);                                                  // 디버그용: 작성된 헤더 출력
 
   srcfd = Open(filename, O_RDONLY, 0 );                               // 파일을 읽기 전용으로 오픈
-  srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0 );        // 파일 전체를 읽기 전용 private 매핑
+
+  /* GET일 때만 파일 바이트 전송, HEAD는 스킵 */
+    if (!is_head) {
+          srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+          Close(srcfd);
+          Rio_writen(fd, srcp, filesize);
+          Munmap(srcp, filesize);
+    }
+  //srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0 );        // 파일 전체를 읽기 전용 private 매핑
   // Mmap을 쓴 이유는 메모리처럼 직접 다루기 위함
   // 일반적으로 read()로 파일을 읽어 버퍼에 복사한 뒤, write()로 다시 네트워크에 복사해야 하지만,
   // mmap은 커널 페이지 테이블에 파일을 매핑(mapping)해 두고, 
   // 사용자 공간에서는 단순히 메모리 접근만으로 파일 데이터를 읽을 수 있도록 해 준다. 
   // 따라서 복사 횟수가 줄어들어 대용량 전송 시 성능 이점이 큽니다.
-  Close(srcfd);                                                       // 매핑 후 더 이상 필요 없는 파일 디스크립터 닫기
-  Rio_writen(fd, srcp, filesize);                                     // 매핑된 파일 내용을 클라이언트에 전송
-  Munmap(srcp, filesize);                                             // 메모리 매핑 해제
+  //Close(srcfd);                                                       // 매핑 후 더 이상 필요 없는 파일 디스크립터 닫기
+  //Rio_writen(fd, srcp, filesize);                                     // 매핑된 파일 내용을 클라이언트에 전송
+  //Munmap(srcp, filesize);                                             // 메모리 매핑 해제
 /* malloc, rio_readn, rio_writen을 사용해서 연결 식별자에게 복사해보기 -숙제 11.9
   // 1) malloc으로 버퍼 할당 
   srcp = malloc(filesize);
