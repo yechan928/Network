@@ -41,26 +41,26 @@ void doit(int fd)
     return;
   }
   
-/* 3. 예외처리: HTTP/1.1 요청이라면 Host 헤더가 반드시 있는지 검사 */
-if (strcasecmp(version, "HTTP/1.1") == 0) {
-  char header[MAXLINE];           
-  int has_host = 0;
+  /* 3. 예외처리: HTTP/1.1 요청이라면 Host 헤더가 반드시 있는지 검사 */
+  if (strcasecmp(version, "HTTP/1.1") == 0) {
+    char header[MAXLINE];           
+    int has_host = 0;
 
-  /* 헤더를 몽땅 한 번에 읽으면서, HTTP/1.1이면 Host 검사도 함께 */
-Rio_readlineb(&rio, header, MAXLINE);
-while (strcmp(header, "\r\n")) {
-    if (!strncasecmp(header, "Host:", 5))
-        has_host = 1;
-    Rio_readlineb(&rio, header, MAXLINE);
-}
-
-/* HTTP/1.1인데 Host가 없으면 에러 */
-if (strcasecmp(version, "HTTP/1.1") == 0 && !has_host) {
-    clienterror(fd, version, "400", "Bad Request", "Missing Host header");
-    return;
+    /* 헤더를 몽땅 한 번에 읽으면서, HTTP/1.1이면 Host 검사도 함께 */
+  Rio_readlineb(&rio, header, MAXLINE);
+  while (strcmp(header, "\r\n")) {
+      if (!strncasecmp(header, "Host:", 5))
+          has_host = 1;
+      Rio_readlineb(&rio, header, MAXLINE);
   }
 
-}
+  /* HTTP/1.1인데 Host가 없으면 에러 */
+  if (strcasecmp(version, "HTTP/1.1") == 0 && !has_host) {
+      clienterror(fd, version, "400", "Bad Request", "Missing Host header");
+      return;
+    }
+
+  }
 
   // 4. URI 파싱: 정적/동적 콘텐츠 구분 ->uri로 파싱하는 이유 : HTTP 요청에서 어떤 자원(파일이나 CGI 프로그램)을 달라고 했는지는 전부 uri 안에 들어 있기 때문
   is_static = parse_uri(uri, filename, cgiargs); // filename : 실제 파일 또는 프로그램 경로 저장 , cgiargs : CGI용 인자 저장
